@@ -20,13 +20,13 @@
 
 # FIRST FUNCTION
 MvAplot <- function(exprData, pdffilename, pcolor="black", lcolor="red") {
-  reference <- exprData[1]
-  reference_name <- colnames(exprData)[1]
+  reference <- exprData[,2]
+  reference_name <- exprData$X[1]
   samples <- (length(exprData))
   
   pdf(file = pdffilename)
-  for(i in 2:samples){
-    current <- exprData[i]
+   for(i in 3:samples){
+    current <- exprData[,i]
     
     M<-(log2(reference)-log2(current))[[1]]
     A<-((log2(reference)+log2(current))/2)[[1]]
@@ -50,41 +50,38 @@ MvAplot <- function(exprData, pdffilename, pcolor="black", lcolor="red") {
 }
 
 # SECOND FUNCTION
-TMMnorm <- function(exprData, annot, Mtrim = 0.02, Atrim = c(0,8)) {
-  seq_depths <- colSums(exprData)
-  exprData <- exprData / seq_depths * (10^6) # Va fatto anche sul primo???
+TMMnorm <- function(exprData, annot, Mtrim=0.02, Atrim = c(0,8)) {
+  #scaling by the sequencing depth and 
+  SD<-colSums(exprData[,2:ncol(exprData)], na.rm = T) #ricontrollare
+  data<-sweep(exprData[,2:ncol(exprData)],2,SD, FUN='/')*10^6 
+  rownames(data)<-exprData[,1]
+  normData<-data
+  #SCALING FACTORS
+  ni<-ncol(data)
+  # initialization of SF vector
+  SF<-rep(0,times=ni)
   
-  lengths <- annot[rownames(exprData), "Length"] #Estraggo le lunghezze, impostando a NA quelli missing
-  median_length <- median(annot$Length, na.rm = TRUE) #Estraggo la mediana
-  lengths[is.na(lengths)] <- median_length #La imposto come valore per i missing values
-  
-  
-  normalized <- log2(exprData) # mi porto in log per uniformare il calcolo
-  reference <- normalized[1]
-  samples <- (length(exprData))
-  
-  sfs <- rep(0, samples)
-  
-  for(i in 2:samples){
-    current <- normalized[i]
+  for (i in 2:ni){
+    # computing A and M with an offset
+    offset=0.0001
+    M<-log2(data[,1]+offset)-log2(data[,i]+offset)
+    A<-(log2(data[,1]+offset)+log2(data[,i]+offset))/2
     
-    M <- (reference - current)[[1]]
-    A <- ((reference + current)/2)[[1]]
-    
-    cond <- (A > Atrim[1] & A < Atrim[2])
-    M_filtered <- M[cond]
-    M_sorted <- sort(M_filtered)
-    
-    sfs[i] <- mean(M_sorted, trim = Mtrim, na.rm = T)
-    
-    normalized[,i] <- normalized[,i] + sfs[i]
+    indA<-A>Atrim[1]&A<Atrim[2]
+    SF[i]<-mean(M[indA], trim=Mtrim)
+    SF[i]<-2^(SF[i])
+    normData[,i]<-normData[,i]*SF[i]
   }
-  
-  # Qui va iniziato lo scaling con la lunghezza e fatto x 10^3
-  normalized <- (2^normalized) * lengths / (10^3)  #In che scala??
-  
-  return (list(2^sfs, normalized)) #ritorno riportando in lineare
+  SF[1]<-2^(SF[1])
+  # Scaling for the length 
+  normData <- sweep((normData),1,annot$Length, FUN="/")*(10^3)
+  # let's add again the column with the names
+  normData<-cbind(exprData[,1],normData)
+  # returning the list
+  l<-list(normData,SF)
+  return(l)
 }
+
 
 DATA <- read.table("raw_count.txt", sep="\t", row.names=1, header=TRUE)
 annotations <- read.table("gene_annot.txt", sep="\t", row.names=2, header=TRUE, quote = "\"")
